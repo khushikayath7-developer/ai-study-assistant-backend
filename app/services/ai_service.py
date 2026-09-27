@@ -34,9 +34,13 @@ def ask_ai(question: str, context_text: str = "") -> str:
     response = requests.post(GEMINI_URL, json=payload, timeout=30)
 
     if response.status_code != 200:
+        try:
+            error_message = response.json().get("error", {}).get("message")
+        except ValueError:
+            error_message = None
         raise HTTPException(
             status_code=502,
-            detail=f"AI service error: {response.text}"
+            detail=error_message or "The AI service is temporarily unavailable."
         )
 
     data = response.json()
