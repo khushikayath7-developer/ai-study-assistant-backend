@@ -1,4 +1,4 @@
-from fastapi import APIRouter, Depends, UploadFile, File, Form
+from fastapi import APIRouter, Depends, UploadFile, File, Form, HTTPException
 from sqlalchemy.orm import Session
 from typing import List, Optional
 
@@ -45,8 +45,18 @@ def ask_about_file(
         .filter(models.UploadedFile.id == file_id, models.UploadedFile.user_id == current_user.id)
         .first()
     )
-    context = record.extracted_text if record else ""
-    answer = ask_ai(question, context_text=context or "")
+    if not record:
+        raise HTTPException(status_code=404, detail="Uploaded file not found.")
+    if not record.extracted_text or not record.extracted_text.strip():
+        raise HTTPException(
+            status_code=422,
+            detail=(
+                "No readable text was found in this file. Please upload a text-based PDF; "
+                "scanned PDFs and images require OCR, which is not supported yet."
+            ),
+        )
+
+    answer = ask_ai(question, context_text=record.extracted_text)
 
     chat = models.ChatHistory(user_id=current_user.id, question=question, answer=answer)
     db.add(chat)

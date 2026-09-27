@@ -2,10 +2,11 @@ import requests
 from fastapi import HTTPException
 from app.config import settings
 
-GEMINI_URL = (
-    f"https://generativelanguage.googleapis.com/v1beta/models/"
-    f"{settings.GEMINI_MODEL}:generateContent?key={settings.GEMINI_API_KEY}"
-)
+GEMINI_BASE_URL = "https://generativelanguage.googleapis.com/v1beta/models"
+
+
+def _model_url(model: str) -> str:
+    return f"{GEMINI_BASE_URL}/{model}:generateContent?key={settings.GEMINI_API_KEY}"
 
 
 def ask_ai(question: str, context_text: str = "") -> str:
@@ -31,22 +32,34 @@ def ask_ai(question: str, context_text: str = "") -> str:
         ]
     }
 
-    response = requests.post(GEMINI_URL, json=payload, timeout=30)
+    models = list(dict.fromkeys([settings.GEMINI_MODEL, settings.GEMINI_FALLBACK_MODEL]))
+    last_error = None
 
-    if response.status_code != 200:
+    for model in models:
         try:
-            error_message = response.json().get("error", {}).get("message")
+            response = requests.post(_model_url(model), json=payload, timeout=45)
+        except requests.RequestException:
+            last_error = "Unable to connect to the AI service."
+            continue
+
+        if response.status_code == 200:
+            data = response.json()
+            try:
+                return data["candidates"][0]["content"]["parts"][0]["text"]
+            except (KeyError, IndexError):
+                last_error = "The AI returned an empty response."
+                continue
+
+        try:
+            last_error = response.json().get("error", {}).get("message")
         except ValueError:
-            error_message = None
-        raise HTTPException(
-            status_code=502,
-            detail=error_message or "The AI service is temporarily unavailable."
-        )
+            last_error = None
 
-    data = response.json()
-    try:
-        answer = data["candidates"][0]["content"]["parts"][0]["text"]
-    except (KeyError, IndexError):
-        answer = "Sorry, I couldn't generate an answer right now."
+        # Try the fallback for unavailable, overloaded, or rate-limited models.
+        if response.status_code not in (404, 429, 503):
+            break
 
-    return answer
+    raise HTTPException(
+        status_code=502,
+        detail=last_error or "The AI service is temporarily unavailable. Please try again."
+    )
