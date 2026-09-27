@@ -16,7 +16,7 @@ def ask_question(
     db: Session = Depends(get_db),
     current_user: models.User = Depends(get_current_user),
 ):
-    answer = ask_ai(request.question)
+    answer = ask_ai(request.question, history=request.history)
 
     chat = models.ChatHistory(
         user_id=current_user.id,

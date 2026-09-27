@@ -1,4 +1,5 @@
-from fastapi import APIRouter, Depends, UploadFile, File, Form, HTTPException
+import json
+from fastapi import APIRouter, Depends, UploadFile, File, Form
 from sqlalchemy.orm import Session
 from typing import List, Optional
 
@@ -36,6 +37,7 @@ def upload_file(
 def ask_about_file(
     file_id: int,
     question: str = Form(...),
+    history: str = Form(None),  # JSON string of recent conversation, sent from the app
     db: Session = Depends(get_db),
     current_user: models.User = Depends(get_current_user),
 ):
@@ -45,18 +47,9 @@ def ask_about_file(
         .filter(models.UploadedFile.id == file_id, models.UploadedFile.user_id == current_user.id)
         .first()
     )
-    if not record:
-        raise HTTPException(status_code=404, detail="Uploaded file not found.")
-    if not record.extracted_text or not record.extracted_text.strip():
-        raise HTTPException(
-            status_code=422,
-            detail=(
-                "No readable text was found in this file. Please upload a text-based PDF; "
-                "scanned PDFs and images require OCR, which is not supported yet."
-            ),
-        )
-
-    answer = ask_ai(question, context_text=record.extracted_text)
+    context = record.extracted_text if record else ""
+    parsed_history = json.loads(history) if history else None
+    answer = ask_ai(question, context_text=context or "", history=parsed_history)
 
     chat = models.ChatHistory(user_id=current_user.id, question=question, answer=answer)
     db.add(chat)

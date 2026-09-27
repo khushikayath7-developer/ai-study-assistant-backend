@@ -32,6 +32,7 @@ class Token(BaseModel):
 # ---------- Chat ----------
 class ChatRequest(BaseModel):
     question: str
+    history: Optional[list] = None
 
 
 class ChatResponse(BaseModel):
