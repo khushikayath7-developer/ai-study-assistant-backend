@@ -1,12 +1,23 @@
-import time
+import logging
 import requests
 from fastapi import HTTPException
 from app.config import settings
 
-GEMINI_URL = (
-    f"https://generativelanguage.googleapis.com/v1beta/models/"
-    f"{settings.GEMINI_MODEL}:generateContent?key={settings.GEMINI_API_KEY}"
-)
+logger = logging.getLogger(__name__)
+GEMINI_API_BASE = "https://generativelanguage.googleapis.com/v1beta/models"
+
+
+def _model_names() -> list[str]:
+    """Return unique models in fast-fallback order."""
+    models = [
+        # Prefer the verified low-latency model instead of waiting on an
+        # overloaded "latest" alias before trying a fallback.
+        "gemini-3.1-flash-lite",
+        settings.GEMINI_MODEL,
+        settings.GEMINI_FALLBACK_MODEL,
+        "gemini-3.6-flash",
+    ]
+    return list(dict.fromkeys(model for model in models if model))
 
 
 def ask_ai(question: str, context_text: str = "", history: list = None) -> str:
@@ -58,34 +69,53 @@ def ask_ai(question: str, context_text: str = "", history: list = None) -> str:
         ]
     }
 
-    # Temporary Gemini errors (busy / overloaded / timeout) -> retry a few times automatically
+    # Switch models immediately on transient failures. Repeating the same overloaded
+    # model several times made every chat request unnecessarily take minutes.
     retry_statuses = {429, 500, 502, 503, 504}
-    max_attempts = 4
     response = None
+    saw_rate_limit = False
 
-    for attempt in range(max_attempts):
+    for model in _model_names():
+        url = f"{GEMINI_API_BASE}/{model}:generateContent"
         try:
-            response = requests.post(GEMINI_URL, json=payload, timeout=60)
-        except requests.exceptions.RequestException:
-            response = None  # network hiccup / timeout -> treat like a temporary failure
+            response = requests.post(
+                url,
+                headers={"x-goog-api-key": settings.GEMINI_API_KEY},
+                json=payload,
+                timeout=(8, 30),
+            )
+        except requests.exceptions.RequestException as exc:
+            logger.warning("Gemini model %s request failed: %s", model, type(exc).__name__)
+            response = None
+            continue
 
-        if response is not None and response.status_code not in retry_statuses:
-            break  # got a definite answer (success or a real error)
+        if response.status_code == 200:
+            break
 
-        if attempt < max_attempts - 1:
-            time.sleep(2 * (attempt + 1))  # wait 2s, 4s, 6s between tries
+        logger.warning("Gemini model %s returned HTTP %s", model, response.status_code)
+        if response.status_code == 429:
+            saw_rate_limit = True
 
-    if response is None or response.status_code in retry_statuses:
+        if response.status_code in {400, 404}:
+            # A model can be listed for the key but unavailable on this endpoint.
+            # Skip it and continue with the next configured model.
+            continue
+
+        if response.status_code not in retry_statuses:
+            # Authentication, invalid request, or another permanent configuration error.
+            raise HTTPException(
+                status_code=502,
+                detail="The AI service is not configured correctly. Please contact support."
+            )
+    else:
+        if saw_rate_limit:
+            raise HTTPException(
+                status_code=429,
+                detail="The AI request limit has been reached. Please try again later."
+            )
         raise HTTPException(
             status_code=503,
-            detail="The AI service is currently busy. Please try again in 10-15 seconds."
-        )
-
-    if response.status_code != 200:
-        # Never show raw technical errors to the student
-        raise HTTPException(
-            status_code=502,
-            detail="The AI service is unable to respond right now. Please try again later."
+            detail="All available AI models are temporarily unavailable. Please try again later."
         )
 
     data = response.json()
