@@ -19,8 +19,17 @@ def ask_ai(question: str, context_text: str = "", history: list = None) -> str:
     if not settings.GEMINI_API_KEY:
         raise HTTPException(status_code=500, detail="GEMINI_API_KEY not set in .env")
 
-    parts = ["You are a friendly, helpful study assistant for a student. "
-             "Reply naturally and conversationally, like a real tutor chatting with a student."]
+    parts = [
+        "You are a friendly, helpful study assistant for a student. "
+        "Reply naturally and conversationally, like a real tutor chatting with a student. "
+        "Reply in the same language style the student uses (English, Hindi or Hinglish).\n\n"
+        "SCOPE RULES: You help with studies, learning, explaining concepts, notes and documents, "
+        "homework, exam preparation, and general knowledge questions. If the student asks for "
+        "something outside this, such as song lyrics, copyrighted text, or anything you cannot or "
+        "should not provide, do NOT show any error. Instead reply with a short, kind message saying "
+        "this feature is not available in this study assistant right now, and offer 1-2 study-related "
+        "things you can help with instead."
+    ]
 
     if context_text:
         parts.append(
@@ -49,23 +58,34 @@ def ask_ai(question: str, context_text: str = "", history: list = None) -> str:
         ]
     }
 
-    response = requests.post(GEMINI_URL, json=payload, timeout=30)
+    # Temporary Gemini errors (busy / overloaded / timeout) -> retry a few times automatically
+    retry_statuses = {429, 500, 502, 503, 504}
+    max_attempts = 4
+    response = None
 
-    # Free-tier rate limit hit -> wait a moment and try once more automatically
-    if response.status_code == 429:
-        time.sleep(3)
-        response = requests.post(GEMINI_URL, json=payload, timeout=30)
+    for attempt in range(max_attempts):
+        try:
+            response = requests.post(GEMINI_URL, json=payload, timeout=60)
+        except requests.exceptions.RequestException:
+            response = None  # network hiccup / timeout -> treat like a temporary failure
 
-    if response.status_code == 429:
+        if response is not None and response.status_code not in retry_statuses:
+            break  # got a definite answer (success or a real error)
+
+        if attempt < max_attempts - 1:
+            time.sleep(2 * (attempt + 1))  # wait 2s, 4s, 6s between tries
+
+    if response is None or response.status_code in retry_statuses:
         raise HTTPException(
-            status_code=429,
-            detail="AI thoda busy hai (free tier limit). Kripya 10-15 second baad dobara try karein."
+            status_code=503,
+            detail="The AI service is currently busy. Please try again in 10-15 seconds."
         )
 
     if response.status_code != 200:
+        # Never show raw technical errors to the student
         raise HTTPException(
             status_code=502,
-            detail=f"AI service error: {response.text}"
+            detail="The AI service is unable to respond right now. Please try again later."
         )
 
     data = response.json()
