@@ -1,61 +1,76 @@
 # Backend Setup (FastAPI + PostgreSQL + Gemini AI)
 
-## Step 1 — PostgreSQL install & DB banao
-1. PostgreSQL install karo (agar nahi hai): https://www.postgresql.org/download/
-2. pgAdmin ya terminal se ek naya database banao:
+## Step 1 — Install PostgreSQL and create the database
+
+1. Install [PostgreSQL](https://www.postgresql.org/download/) if it is not already installed.
+2. Create a new database using pgAdmin or the terminal:
+
    ```sql
    CREATE DATABASE study_assistant_db;
    ```
 
-## Step 2 — Gemini API key lo (FREE)
-1. https://aistudio.google.com/app/apikey pe jao
-2. Google account se login karke "Create API Key" click karo
-3. Key copy karo
+## Step 2 — Create a Gemini API key
 
-## Step 3 — Python environment setup
+1. Open [Google AI Studio](https://aistudio.google.com/app/apikey).
+2. Sign in with your Google account and click **Create API Key**.
+3. Copy the generated key.
+
+## Step 3 — Set up the Python environment
+
 ```bash
 cd backend
 python -m venv venv
 
-# Activate:
-venv\Scripts\activate        # Windows
-source venv/bin/activate     # Mac/Linux
+# Activate the environment on Windows:
+venv\Scripts\activate
+
+# Activate the environment on macOS/Linux:
+source venv/bin/activate
 
 pip install -r requirements.txt
 ```
 
-## Step 4 — .env file banao
-`.env.example` ko copy karke `.env` banao:
+## Step 4 — Create the environment file
+
+Copy `.env.example` to a new file named `.env`:
+
 ```bash
 cp .env.example .env
 ```
-Ab `.env` file open karke apna real Postgres password aur Gemini API key daalo:
-```
+
+Open `.env` and provide your PostgreSQL password, a secure JWT secret, and your Gemini API key:
+
+```env
 DATABASE_URL=postgresql+psycopg2://postgres:YOUR_PASSWORD@localhost:5432/study_assistant_db
-SECRET_KEY=koi-bhi-random-lambi-string-daal-do
-GEMINI_API_KEY=tumhari-gemini-key
+SECRET_KEY=replace-with-a-long-random-secret
+GEMINI_API_KEY=your-gemini-api-key
 ```
 
-## Step 5 — Server run karo
+Never commit the `.env` file or expose its values publicly.
+
+## Step 5 — Run the server
+
 ```bash
 uvicorn app.main:app --reload --host 0.0.0.0 --port 8000
 ```
 
-Ab browser me kholo: **http://localhost:8000/docs**
-Yahan Swagger UI me tum saare API endpoints test kar sakte ho (register, login, chat/ask, files/upload).
+Open **http://localhost:8000/docs** in a browser. The Swagger UI can be used to test the registration, login, chat, and file-upload endpoints.
 
-## Important — Mobile se connect karne ke liye
-Agar React Native app **real phone** ya **emulator** se backend ko call karega, to `localhost` kaam nahi karega:
-- **Android Emulator**: use `http://10.0.2.2:8000`
-- **Real phone (same WiFi)**: apne laptop ka local IP nikalo (`ipconfig` / `ifconfig`) aur `http://192.168.x.x:8000` use karo
+## Connecting from a mobile device
 
-## API Endpoints Summary
+`localhost` does not point to the development computer when the React Native app runs on a phone or Android emulator.
+
+- **Android Emulator:** use `http://10.0.2.2:8000`.
+- **Physical phone on the same Wi-Fi network:** find the computer's local IP address with `ipconfig` or `ifconfig`, then use an address such as `http://192.168.x.x:8000`.
+
+## API endpoints
+
 | Method | Endpoint | Description |
 |--------|----------|-------------|
-| POST | /auth/register | Naya user banao |
-| POST | /auth/login | Login karo, JWT token milega |
-| POST | /chat/ask | AI se question pucho |
-| GET  | /chat/history | Purani chats dekho |
-| POST | /files/upload | PDF/image upload karo |
-| POST | /files/{id}/ask | Uploaded file ke context se sawal pucho |
-| GET  | /files/ | Apni uploaded files ki list dekho |
+| POST | `/auth/register` | Create a new user account |
+| POST | `/auth/login` | Log in and receive a JWT access token |
+| POST | `/chat/ask` | Ask the AI a question |
+| GET | `/chat/history` | Retrieve previous conversations |
+| POST | `/files/upload` | Upload a PDF or image |
+| POST | `/files/{id}/ask` | Ask a question using an uploaded file as context |
+| GET | `/files/` | List the current user's uploaded files |
