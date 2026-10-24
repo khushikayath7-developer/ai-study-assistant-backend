@@ -1,6 +1,6 @@
 from pydantic import BaseModel, EmailStr
 from datetime import datetime
-from typing import Optional
+from typing import List, Optional
 
 
 # ---------- Auth ----------
@@ -33,12 +33,28 @@ class Token(BaseModel):
 class ChatRequest(BaseModel):
     question: str
     history: Optional[list] = None
+    conversation_id: Optional[int] = None
 
 
 class ChatResponse(BaseModel):
+    id: int
+    conversation_id: Optional[int] = None
     question: str
     answer: str
     created_at: datetime
+
+    class Config:
+        from_attributes = True
+
+
+class ConversationOut(BaseModel):
+    id: int
+    title: str
+    file_id: Optional[int] = None
+    file_name: Optional[str] = None
+    created_at: datetime
+    updated_at: datetime
+    messages: List[ChatResponse]
 
     class Config:
         from_attributes = True

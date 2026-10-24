@@ -15,6 +15,31 @@ class User(Base):
 
     chats = relationship("ChatHistory", back_populates="user")
     files = relationship("UploadedFile", back_populates="user")
+    conversations = relationship("Conversation", back_populates="user")
+
+
+class Conversation(Base):
+    __tablename__ = "conversations"
+
+    id = Column(Integer, primary_key=True, index=True)
+    user_id = Column(Integer, ForeignKey("users.id"), nullable=False, index=True)
+    title = Column(String(200), nullable=False)
+    file_id = Column(Integer, ForeignKey("uploaded_files.id"), nullable=True)
+    created_at = Column(DateTime, default=datetime.utcnow)
+    updated_at = Column(DateTime, default=datetime.utcnow, onupdate=datetime.utcnow)
+
+    user = relationship("User", back_populates="conversations")
+    file = relationship("UploadedFile")
+    messages = relationship(
+        "ChatHistory",
+        back_populates="conversation",
+        order_by="ChatHistory.created_at",
+        cascade="all, delete-orphan",
+    )
+
+    @property
+    def file_name(self):
+        return self.file.filename if self.file else None
 
 
 class ChatHistory(Base):
@@ -22,11 +47,13 @@ class ChatHistory(Base):
 
     id = Column(Integer, primary_key=True, index=True)
     user_id = Column(Integer, ForeignKey("users.id"))
+    conversation_id = Column(Integer, ForeignKey("conversations.id"), nullable=True, index=True)
     question = Column(Text, nullable=False)
     answer = Column(Text, nullable=False)
     created_at = Column(DateTime, default=datetime.utcnow)
 
     user = relationship("User", back_populates="chats")
+    conversation = relationship("Conversation", back_populates="messages")
 
 
 class UploadedFile(Base):

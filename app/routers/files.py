@@ -1,5 +1,6 @@
 import json
-from fastapi import APIRouter, Depends, UploadFile, File, Form
+from datetime import datetime
+from fastapi import APIRouter, Depends, HTTPException, UploadFile, File, Form
 from sqlalchemy.orm import Session
 from typing import List, Optional
 
@@ -38,6 +39,7 @@ def ask_about_file(
     file_id: int,
     question: str = Form(...),
     history: str = Form(None),  # JSON string of recent conversation, sent from the app
+    conversation_id: Optional[int] = Form(None),
     db: Session = Depends(get_db),
     current_user: models.User = Depends(get_current_user),
 ):
@@ -47,11 +49,44 @@ def ask_about_file(
         .filter(models.UploadedFile.id == file_id, models.UploadedFile.user_id == current_user.id)
         .first()
     )
-    context = record.extracted_text if record else ""
-    parsed_history = json.loads(history) if history else None
-    answer = ask_ai(question, context_text=context or "", history=parsed_history)
+    if record is None:
+        raise HTTPException(status_code=404, detail="File not found")
 
-    chat = models.ChatHistory(user_id=current_user.id, question=question, answer=answer)
+    conversation = None
+    if conversation_id is not None:
+        conversation = (
+            db.query(models.Conversation)
+            .filter(
+                models.Conversation.id == conversation_id,
+                models.Conversation.user_id == current_user.id,
+            )
+            .first()
+        )
+        if conversation is None:
+            raise HTTPException(status_code=404, detail="Chat not found")
+
+    context = record.extracted_text or ""
+    parsed_history = json.loads(history) if history else None
+    answer = ask_ai(question, context_text=context, history=parsed_history)
+
+    if conversation is None:
+        conversation = models.Conversation(
+            user_id=current_user.id,
+            title=question.strip()[:200] or record.filename,
+            file_id=record.id,
+        )
+        db.add(conversation)
+        db.flush()
+    else:
+        conversation.file_id = record.id
+    conversation.updated_at = datetime.utcnow()
+
+    chat = models.ChatHistory(
+        user_id=current_user.id,
+        conversation_id=conversation.id,
+        question=question,
+        answer=answer,
+    )
     db.add(chat)
     db.commit()
     db.refresh(chat)
